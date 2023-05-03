@@ -29,6 +29,7 @@
 #include "rom_selector.h"
 
 #include "hardware.hpp"
+//#include "picosystem.hpp"
 #include "gpbuttons.h"
 #include "menu.h"
 
@@ -231,26 +232,97 @@ void loadState()
     memcpy(SRAM, reinterpret_cast<void *>(NES_BATTERY_SAVE_ADDR), SRAM_SIZE);
 }
 
+int ccmax = 0;
+int cc=0;
+int volume = 70;
+int VolumeMax = 100;
+void playbeep(int f=2000)
+{
+    // picosystem::voice_t piano = picosystem::voice(20, 200, 50, 50);
+   // picosystem::play(piano, 400, 0.5);
+    picosystem::_play_note(f, volume);
+    //cc = c;
+}
+void stopbeep()
+{
+  
+        picosystem::_play_note(1, 0);
+    
+}
+const int samplesize = 2048;
+BYTE soundin1[samplesize];
+BYTE soundin2[samplesize];
+BYTE soundin3[samplesize];
+BYTE soundin4[samplesize];
+BYTE soundin5[samplesize];
+int samplecount;
+int cursample;
+bool soundon = false;
+bool mute = false;
+void updateaudio()
+{
+    if (soundon && !mute)
+    {
+       
+        cc--;
+        if (cc < 0)
+        { 
+            cc = ccmax;
+             if (cursample >= samplecount)
+            {
+                soundon = false;
+                stopbeep();
+                return;
+            }
+             uint32_t value = soundin4[cursample]/2;
+             int v = value;// << 16;
+
+                             value = soundin1[cursample]/2;
+                v += value;// << 16;
+                value = soundin2[cursample];
+                v += value;// << 16;
+                value = soundin3[cursample];
+                v += value;// << 16;
+                value = soundin5[cursample];
+                v += value;// << 16;
+                //v = v / 5;
+                       
+          
+            v = v % 10000;
+            playbeep(v);
+            cursample++;
+           
+        }
+    }
+    else if (mute)
+    {
+        stopbeep();
+    }
+}
+
+
 int getbuttons() {
-     picosystem::_gpio_get2();
-     return (picosystem::button(picosystem::LEFT) ? GPLEFT : 0) |
-            (picosystem::button(picosystem::RIGHT) ? GPRIGHT : 0) |
-            (picosystem::button(picosystem::UP) ? GPUP : 0) |
-            (picosystem::button(picosystem::DOWN) ? GPDOWN : 0) |
-            (picosystem::button(picosystem::Y) ? GPY : 0) |
-            (picosystem::button(picosystem::X) ? GPX : 0) |
-            (picosystem::button(picosystem::A) ? GPA : 0) |
-            (picosystem::button(picosystem::B) ? GPB : 0) |
-            0;
+    picosystem::_gpio_get2();
+    return (picosystem::button(picosystem::LEFT) ? GPLEFT : 0) |
+        (picosystem::button(picosystem::RIGHT) ? GPRIGHT : 0) |
+        (picosystem::button(picosystem::UP) ? GPUP : 0) |
+        (picosystem::button(picosystem::DOWN) ? GPDOWN : 0) |
+        (picosystem::button(picosystem::Y) ? GPY : 0) |
+        (picosystem::button(picosystem::X) ? GPX : 0) |
+        (picosystem::button(picosystem::A) ? GPA : 0) |
+        (picosystem::button(picosystem::B) ? GPB : 0) |
+        0;
 
 }
+
 static DWORD prevButtons = 0;
 static int rapidFireMask = 0;
 static int rapidFireCounter = 0;
 static  bool jumptomenu = false;
+
 void InfoNES_PadState(DWORD *pdwPad1, DWORD *pdwPad2, DWORD *pdwSystem)
 {
-    
+    updateaudio();
 
     // moved variables outside function body because prevButtons gets initialized to 0 everytime the function is called.
     // This is strange because a static variable inside a function is only initialsed once and retains it's value
@@ -305,6 +377,11 @@ void InfoNES_PadState(DWORD *pdwPad1, DWORD *pdwPad2, DWORD *pdwSystem)
             saveNVRAM(romSelector_.GetCurrentRomIndex(), 'B');
             romSelector_.selectcustomrom();
             reset = true;
+           
+        }
+        if (pushed & GPDOWN)
+        {
+            mute = !mute;
         }
         if (pushed & GPX)
         {
@@ -314,10 +391,18 @@ void InfoNES_PadState(DWORD *pdwPad1, DWORD *pdwPad2, DWORD *pdwSystem)
         }
         if (pushed & GPA)
         {
+            playbeep(1000);
+            volume += 10;
+            if (volume > VolumeMax)
+                volume = VolumeMax;
             // rapidFireMask[i] ^= io::GamePadState::Button::A;
         }
         if (pushed & GPB)
         {
+            playbeep(3000);
+            volume -= 10;
+            if (volume < 0)
+                volume = 0;
             // rapidFireMask[i] ^= io::GamePadState::Button::B;
         }
     }
@@ -385,8 +470,13 @@ void InfoNES_ReleaseRom()
     VROM = nullptr;
 }
 
+
+
+
 void InfoNES_SoundInit()
 {
+ // playbeep();
+
 }
 
 int InfoNES_SoundOpen(int samples_per_sync, int sample_rate)
@@ -396,15 +486,32 @@ int InfoNES_SoundOpen(int samples_per_sync, int sample_rate)
 
 void InfoNES_SoundClose()
 {
+    stopbeep();
 }
 
 int __not_in_flash_func(InfoNES_GetSoundBufferSize)()
 {
-    return 0;
+    return samplesize;
 }
 
 void __not_in_flash_func(InfoNES_SoundOutput)(int samples, BYTE *wave1, BYTE *wave2, BYTE *wave3, BYTE *wave4, BYTE *wave5)
 {
+   if (samples )
+  
+    for (int i = 0; i < samples; i++)
+    {
+        soundin1[i] = wave1[i];
+        soundin2[i] = wave2[i];
+        soundin3[i] = wave3[i];
+        soundin4[i] = wave4[i];
+        soundin5[i] = wave5[i];
+           
+          //  (wave1[i] + wave2[i] + wave3[i] + wave4[i] + wave5[i]) / 5;
+    }
+    soundon = true;
+    cursample = 0;
+    samplecount = samples;
+         
 }
 
 extern WORD PC;
@@ -547,6 +654,7 @@ bool loadAndReset()
 
 int InfoNES_Menu()
 {
+   // playbeep();
     // InfoNES_Main() のループで最初に呼ばれる
     return loadAndReset() ? 0 : -1;
     // return 0;
@@ -731,6 +839,7 @@ int main()
 
     while (true)
     {       
+
         int index = romSelector_.GetCurrentRomIndex();
         printf("Starting '%s'.\n", romSelector_.GetCurrentGameName());
         InfoNES_Main();
